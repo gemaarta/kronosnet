@@ -47,6 +47,13 @@ knet_handle_t knet_handle_start(int logfds[2], uint8_t log_level);
 int knet_handle_stop(knet_handle_t knet_h);
 
 /*
+ * functional test helpers
+ */
+void knet_handle_start_nodes(knet_handle_t knet_h[], uint8_t numnodes, int logfd, uint8_t log_level);
+void knet_handle_stop_nodes(knet_handle_t knet_h[], uint8_t numnodes);
+void knet_handle_join_nodes(knet_handle_t knet_h[], uint8_t numnodes, uint8_t numlinks, uint8_t transport);
+
+/*
  * high level logging function.
  * automatically setup logpipes and start/stop logging thread.
  *
