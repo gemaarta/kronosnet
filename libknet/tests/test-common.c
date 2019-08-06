@@ -569,7 +569,7 @@ void knet_handle_stop_nodes(knet_handle_t knet_h[], uint8_t numnodes)
 	return;
 }
 
-void knet_handle_join_nodes(knet_handle_t knet_h[], uint8_t numnodes, uint8_t numlinks, uint8_t transport)
+void knet_handle_join_nodes(knet_handle_t knet_h[], uint8_t numnodes, uint8_t numlinks, int family, uint8_t transport)
 {
 	uint8_t i, x, j;
 	struct sockaddr_storage src, dst;
@@ -592,16 +592,30 @@ void knet_handle_join_nodes(knet_handle_t knet_h[], uint8_t numnodes, uint8_t nu
 			}
 
 			for (x = 0; x < numlinks; x++) {
-				if (make_local_sockaddr(&src, i + x) < 0) {
-					printf("Unable to convert src to sockaddr: %s\n", strerror(errno));
-					knet_handle_stop_nodes(knet_h, numnodes);
-					exit(FAIL);
-				}
+				if (family == AF_INET6) {
+					if (make_local_sockaddr6(&src, i + x) < 0) {
+						printf("Unable to convert src to sockaddr: %s\n", strerror(errno));
+						knet_handle_stop_nodes(knet_h, numnodes);
+						exit(FAIL);
+					}
 
-				if (make_local_sockaddr(&dst, j + x) < 0) {
-					printf("Unable to convert dst to sockaddr: %s\n", strerror(errno));
-					knet_handle_stop_nodes(knet_h, numnodes);
-					exit(FAIL);
+					if (make_local_sockaddr6(&dst, j + x) < 0) {
+						printf("Unable to convert dst to sockaddr: %s\n", strerror(errno));
+						knet_handle_stop_nodes(knet_h, numnodes);
+						exit(FAIL);
+					}
+				} else {
+					if (make_local_sockaddr(&src, i + x) < 0) {
+						printf("Unable to convert src to sockaddr: %s\n", strerror(errno));
+						knet_handle_stop_nodes(knet_h, numnodes);
+						exit(FAIL);
+					}
+
+					if (make_local_sockaddr(&dst, j + x) < 0) {
+						printf("Unable to convert dst to sockaddr: %s\n", strerror(errno));
+						knet_handle_stop_nodes(knet_h, numnodes);
+						exit(FAIL);
+					}
 				}
 
 				printf("joining node %u with node %u via link %u src offset: %u dst offset: %u\n", i, j, x, i+x, j+x);
