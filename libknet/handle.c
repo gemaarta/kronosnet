@@ -791,7 +791,7 @@ int knet_handle_free(knet_handle_t knet_h)
 	_close_epolls(knet_h);
 	_destroy_buffers(knet_h);
 	_close_socks(knet_h);
-	crypto_fini(knet_h);
+	crypto_fini(knet_h, 0);
 	compress_fini(knet_h, 1);
 	_destroy_locks(knet_h);
 
@@ -1459,10 +1459,13 @@ int knet_handle_pmtud_get(knet_handle_t knet_h,
 	return 0;
 }
 
-int knet_handle_crypto(knet_handle_t knet_h, struct knet_handle_crypto_cfg *knet_handle_crypto_cfg)
+int knet_handle_crypto_set_config(knet_handle_t knet_h,
+				  struct knet_handle_crypto_cfg *knet_handle_crypto_cfg,
+				  uint8_t config_num)
 {
 	int savederrno = 0;
 	int err = 0;
+	int pmtud_rerun = 0;
 
 	if (!knet_h) {
 		errno = EINVAL;
@@ -1470,6 +1473,11 @@ int knet_handle_crypto(knet_handle_t knet_h, struct knet_handle_crypto_cfg *knet
 	}
 
 	if (!knet_handle_crypto_cfg) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if ((config_num < 1) || (config_num > KNET_MAX_CRYPTO_INSTANCES)) {
 		errno = EINVAL;
 		return -1;
 	}
@@ -1482,32 +1490,40 @@ int knet_handle_crypto(knet_handle_t knet_h, struct knet_handle_crypto_cfg *knet
 		return -1;
 	}
 
+	/*
+	 * rerun pmtud only if we are configuring crypto for the first time
+	 * or we are updating the current in-use config
+	 */
+	if ((!knet_h->crypto_in_use_config) || (knet_h->crypto_in_use_config == config_num)) {
+		pmtud_rerun = 1;
+	}
+
 	if ((!strncmp("none", knet_handle_crypto_cfg->crypto_model, 4)) || 
 	    ((!strncmp("none", knet_handle_crypto_cfg->crypto_cipher_type, 4)) &&
 	     (!strncmp("none", knet_handle_crypto_cfg->crypto_hash_type, 4)))) {
-		crypto_fini(knet_h);
-		log_debug(knet_h, KNET_SUB_CRYPTO, "crypto is not enabled");
+		crypto_fini(knet_h, config_num);
+		log_debug(knet_h, KNET_SUB_CRYPTO, "crypto config %u is not enabled", config_num);
 		err = 0;
 		goto exit_unlock;
 	}
 
 	if (knet_handle_crypto_cfg->private_key_len < KNET_MIN_KEY_LEN) {
-		log_debug(knet_h, KNET_SUB_CRYPTO, "private key len too short (min %d): %u",
-			  KNET_MIN_KEY_LEN, knet_handle_crypto_cfg->private_key_len);
+		log_debug(knet_h, KNET_SUB_CRYPTO, "private key len too short for config %u (min %d): %u",
+			  config_num, KNET_MIN_KEY_LEN, knet_handle_crypto_cfg->private_key_len);
 		savederrno = EINVAL;
 		err = -1;
 		goto exit_unlock;
 	}
 
 	if (knet_handle_crypto_cfg->private_key_len > KNET_MAX_KEY_LEN) {
-		log_debug(knet_h, KNET_SUB_CRYPTO, "private key len too long (max %d): %u",
-			  KNET_MAX_KEY_LEN, knet_handle_crypto_cfg->private_key_len);
+		log_debug(knet_h, KNET_SUB_CRYPTO, "private key len too long for config %u (max %d): %u",
+			  config_num, KNET_MAX_KEY_LEN, knet_handle_crypto_cfg->private_key_len);
 		savederrno = EINVAL;
 		err = -1;
 		goto exit_unlock;
 	}
 
-	err = crypto_init(knet_h, knet_handle_crypto_cfg);
+	err = crypto_init(knet_h, knet_handle_crypto_cfg, config_num);
 
 	if (err) {
 		err = -2;
@@ -1515,12 +1531,54 @@ int knet_handle_crypto(knet_handle_t knet_h, struct knet_handle_crypto_cfg *knet
 	}
 
 exit_unlock:
-	if (!err) {
+	if ((!err) && (pmtud_rerun)) {
 		force_pmtud_run(knet_h, KNET_SUB_CRYPTO, 1);
 	}
 	pthread_rwlock_unlock(&knet_h->global_rwlock);
 	errno = err ? savederrno : 0;
 	return err;
+}
+
+int knet_handle_crypto_use_config(knet_handle_t knet_h,
+				  uint8_t config_num)
+{
+	int savederrno = 0;
+	int err = 0;
+
+	if (!knet_h) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if ((config_num < 1) || (config_num > KNET_MAX_CRYPTO_INSTANCES)) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	savederrno = get_global_wrlock(knet_h);
+	if (savederrno) {
+		log_err(knet_h, KNET_SUB_HANDLE, "Unable to get write lock: %s",
+			strerror(savederrno));
+		errno = savederrno;
+		return -1;
+	}
+
+	if (knet_h->crypto_in_use_config != config_num) {
+		err = crypto_use_config(knet_h, config_num);
+		savederrno = errno;
+		if (!err) {
+			force_pmtud_run(knet_h, KNET_SUB_CRYPTO, 1);
+		}
+	}
+
+	pthread_rwlock_unlock(&knet_h->global_rwlock);
+	errno = err ? savederrno : 0;
+	return err;
+}
+
+int knet_handle_crypto(knet_handle_t knet_h, struct knet_handle_crypto_cfg *knet_handle_crypto_cfg)
+{
+	return knet_handle_crypto_set_config(knet_h, knet_handle_crypto_cfg, 1);
 }
 
 int knet_handle_compress(knet_handle_t knet_h, struct knet_handle_compress_cfg *knet_handle_compress_cfg)

@@ -248,7 +248,7 @@ static void _parse_recv_from_links(knet_handle_t knet_h, int sockfd, const struc
 	seq_num_t recv_seq_num;
 	int wipe_bufs = 0;
 
-	if (knet_h->crypto_instance) {
+	if (knet_h->crypto_in_use_config) {
 		struct timespec start_time;
 		struct timespec end_time;
 
@@ -598,7 +598,7 @@ retry:
 			}
 		}
 
-		if (knet_h->crypto_instance) {
+		if (knet_h->crypto_in_use_config) {
 			if (crypto_encrypt_and_sign(knet_h,
 						    (const unsigned char *)inbuf,
 						    outlen,
@@ -708,7 +708,7 @@ retry_pong:
 		inbuf->kh_type = KNET_HEADER_TYPE_PMTUD_REPLY;
 		inbuf->kh_node = htons(knet_h->host_id);
 
-		if (knet_h->crypto_instance) {
+		if (knet_h->crypto_in_use_config) {
 			if (crypto_encrypt_and_sign(knet_h,
 						    (const unsigned char *)inbuf,
 						    outlen,

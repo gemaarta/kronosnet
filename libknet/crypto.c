@@ -53,7 +53,7 @@ int crypto_encrypt_and_sign (
 	unsigned char *buf_out,
 	ssize_t *buf_out_len)
 {
-	return crypto_modules_cmds[knet_h->crypto_instance->model].ops->crypt(knet_h, buf_in, buf_in_len, buf_out, buf_out_len);
+	return crypto_modules_cmds[knet_h->crypto_instance[knet_h->crypto_in_use_config]->model].ops->crypt(knet_h, knet_h->crypto_instance[knet_h->crypto_in_use_config], buf_in, buf_in_len, buf_out, buf_out_len);
 }
 
 int crypto_encrypt_and_signv (
@@ -63,7 +63,7 @@ int crypto_encrypt_and_signv (
 	unsigned char *buf_out,
 	ssize_t *buf_out_len)
 {
-	return crypto_modules_cmds[knet_h->crypto_instance->model].ops->cryptv(knet_h, iov_in, iovcnt_in, buf_out, buf_out_len);
+	return crypto_modules_cmds[knet_h->crypto_instance[knet_h->crypto_in_use_config]->model].ops->cryptv(knet_h, knet_h->crypto_instance[knet_h->crypto_in_use_config], iov_in, iovcnt_in, buf_out, buf_out_len);
 }
 
 int crypto_authenticate_and_decrypt (
@@ -73,18 +73,67 @@ int crypto_authenticate_and_decrypt (
 	unsigned char *buf_out,
 	ssize_t *buf_out_len)
 {
-	return crypto_modules_cmds[knet_h->crypto_instance->model].ops->decrypt(knet_h, buf_in, buf_in_len, buf_out, buf_out_len);
+	int i, err = 0;
+
+	/*
+	 * attempt to decrypt first with the in-use config
+	 * to avoid excessive performance hit.
+	 */
+
+	err = crypto_modules_cmds[knet_h->crypto_instance[knet_h->crypto_in_use_config]->model].ops->decrypt(knet_h, knet_h->crypto_instance[knet_h->crypto_in_use_config], buf_in, buf_in_len, buf_out, buf_out_len);
+
+	/*
+	 * if we fail, try to use the other configurations
+	 */
+	if (err) {
+		for (i = 1; i <= KNET_MAX_CRYPTO_INSTANCES; i++) {
+			/*
+			 * in-use config was already attempted
+			 */
+			if (i == knet_h->crypto_in_use_config) {
+				continue;
+			}
+			if (knet_h->crypto_instance[i]) {
+				log_debug(knet_h, KNET_SUB_CRYPTO, "Alternative crypto configuration found, attempting to decrypt with config %u", i);
+				err = crypto_modules_cmds[knet_h->crypto_instance[i]->model].ops->decrypt(knet_h, knet_h->crypto_instance[i], buf_in, buf_in_len, buf_out, buf_out_len);
+				if (!err) {
+					errno = 0; /* clear errno from previous failures */
+					return err;
+				}
+				log_debug(knet_h, KNET_SUB_CRYPTO, "Packet failed to decrypt with crypto config %u", i);
+			}
+		}
+	}
+	return err;
+}
+
+int crypto_use_config(
+	knet_handle_t knet_h,
+	uint8_t config_num)
+{
+	if (!knet_h->crypto_instance[config_num]) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	knet_h->crypto_in_use_config = config_num;
+	knet_h->sec_block_size = knet_h->crypto_instance[config_num]->sec_block_size;
+	knet_h->sec_hash_size = knet_h->crypto_instance[config_num]->sec_hash_size;
+	knet_h->sec_salt_size = knet_h->crypto_instance[config_num]->sec_salt_size;
+
+	return 0;
 }
 
 int crypto_init(
 	knet_handle_t knet_h,
-	struct knet_handle_crypto_cfg *knet_handle_crypto_cfg)
+	struct knet_handle_crypto_cfg *knet_handle_crypto_cfg,
+	uint8_t config_num)
 {
 	int err = 0, savederrno = 0;
 	int model = 0;
 	struct crypto_instance *current = NULL, *new = NULL;
 
-	current = knet_h->crypto_instance;
+	current = knet_h->crypto_instance[config_num];
 
 	model = crypto_get_model(knet_handle_crypto_cfg->crypto_model);
 	if (model < 0) {
@@ -153,10 +202,18 @@ int crypto_init(
 
 out:
 	if (!err) {
-		knet_h->crypto_instance = new;
-		knet_h->sec_block_size = new->sec_block_size;
-		knet_h->sec_hash_size = new->sec_hash_size;
-		knet_h->sec_salt_size = new->sec_salt_size;
+		knet_h->crypto_instance[config_num] = new;
+		if ((!knet_h->crypto_in_use_config) || (knet_h->crypto_in_use_config == config_num)) {
+			knet_h->sec_block_size = new->sec_block_size;
+			knet_h->sec_hash_size = new->sec_hash_size;
+			knet_h->sec_salt_size = new->sec_salt_size;
+		}
+		/*
+		 * set default config only at first crypto init
+		 */
+		if (!knet_h->crypto_in_use_config) {
+			knet_h->crypto_in_use_config = config_num;
+		}
 
 		log_debug(knet_h, KNET_SUB_CRYPTO, "Hash size: %zu salt size: %zu block size: %zu",
 			  knet_h->sec_hash_size,
@@ -180,10 +237,30 @@ out:
 	return err;
 }
 
-void crypto_fini(
-	knet_handle_t knet_h)
+static void crypto_fini_config(
+	knet_handle_t knet_h,
+	uint8_t config_num)
 {
-	int savederrno = 0;
+	if (knet_h->crypto_instance[config_num]) {
+		if (crypto_modules_cmds[knet_h->crypto_instance[config_num]->model].ops->fini != NULL) {
+			crypto_modules_cmds[knet_h->crypto_instance[config_num]->model].ops->fini(knet_h, knet_h->crypto_instance[config_num]);
+		}
+		free(knet_h->crypto_instance[config_num]);
+		knet_h->crypto_instance[config_num] = NULL;
+		if (knet_h->crypto_in_use_config == config_num) {
+			knet_h->crypto_in_use_config = 0;
+			knet_h->sec_block_size = 0;
+			knet_h->sec_hash_size = 0;
+			knet_h->sec_salt_size = 0;
+		}
+	}
+}
+
+void crypto_fini(
+	knet_handle_t knet_h,
+	uint8_t config_num)
+{
+	int savederrno = 0, i;
 
 	savederrno = pthread_rwlock_wrlock(&shlib_rwlock);
 	if (savederrno) {
@@ -192,15 +269,12 @@ void crypto_fini(
 		return;
 	}
 
-	if (knet_h->crypto_instance) {
-		if (crypto_modules_cmds[knet_h->crypto_instance->model].ops->fini != NULL) {
-			crypto_modules_cmds[knet_h->crypto_instance->model].ops->fini(knet_h, knet_h->crypto_instance);
+	if (!config_num) {
+		for (i = 1; i <= KNET_MAX_CRYPTO_INSTANCES; i++) {
+			crypto_fini_config(knet_h, i);
 		}
-		free(knet_h->crypto_instance);
-		knet_h->sec_block_size = 0;
-		knet_h->sec_hash_size = 0;
-		knet_h->sec_salt_size = 0;
-		knet_h->crypto_instance = NULL;
+	} else {
+		crypto_fini_config(knet_h, config_num);
 	}
 
 	pthread_rwlock_unlock(&shlib_rwlock);
