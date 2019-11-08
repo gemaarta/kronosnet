@@ -273,8 +273,12 @@ void crypto_fini(
 		for (i = 1; i <= KNET_MAX_CRYPTO_INSTANCES; i++) {
 			crypto_fini_config(knet_h, i);
 		}
+		knet_h->crypto_in_use_config = 0;
 	} else {
 		crypto_fini_config(knet_h, config_num);
+		if (knet_h->crypto_in_use_config == config_num) {
+			knet_h->crypto_in_use_config = 0;
+		}
 	}
 
 	pthread_rwlock_unlock(&shlib_rwlock);
