@@ -126,7 +126,8 @@ static int decrypt_openssl (
 	const unsigned char *buf_in,
 	const ssize_t buf_in_len,
 	unsigned char *buf_out,
-	ssize_t *buf_out_len)
+	ssize_t *buf_out_len,
+	uint8_t log_level)
 {
 	struct opensslcrypto_instance *instance = crypto_instance->model_instance;
 	EVP_CIPHER_CTX	ctx;
@@ -146,14 +147,22 @@ static int decrypt_openssl (
 
 	if (!EVP_DecryptUpdate(&ctx, buf_out, &tmplen1, data, datalen)) {
 		ERR_error_string_n(ERR_get_error(), sslerr, sizeof(sslerr));
-		log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to decrypt: %s", sslerr);
+		if (log_level == KNET_LOG_DEBUG) {
+			log_debug(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to decrypt: %s", sslerr);
+		} else {
+			log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to decrypt: %s", sslerr);
+		}
 		err = -1;
 		goto out;
 	}
 
 	if (!EVP_DecryptFinal_ex(&ctx, buf_out + tmplen1, &tmplen2)) {
 		ERR_error_string_n(ERR_get_error(), sslerr, sizeof(sslerr));
-		log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to finalize decrypt: %s", sslerr);
+		if (log_level == KNET_LOG_DEBUG) {
+			log_debug(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to finalize decrypt: %s", sslerr);
+		} else {
+			log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to finalize decrypt: %s", sslerr);
+		}
 		err = -1;
 		goto out;
 	}
@@ -228,7 +237,8 @@ static int decrypt_openssl (
 	const unsigned char *buf_in,
 	const ssize_t buf_in_len,
 	unsigned char *buf_out,
-	ssize_t *buf_out_len)
+	ssize_t *buf_out_len,
+	uint8_t log_level)
 {
 	struct opensslcrypto_instance *instance = crypto_instance->model_instance;
 	EVP_CIPHER_CTX	*ctx = NULL;
@@ -254,14 +264,22 @@ static int decrypt_openssl (
 
 	if (!EVP_DecryptUpdate(ctx, buf_out, &tmplen1, data, datalen)) {
 		ERR_error_string_n(ERR_get_error(), sslerr, sizeof(sslerr));
-		log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to decrypt: %s", sslerr);
+		if (log_level == KNET_LOG_DEBUG) {
+			log_debug(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to decrypt: %s", sslerr);
+		} else {
+			log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to decrypt: %s", sslerr);
+		}
 		err = -1;
 		goto out;
 	}
 
 	if (!EVP_DecryptFinal_ex(ctx, buf_out + tmplen1, &tmplen2)) {
 		ERR_error_string_n(ERR_get_error(), sslerr, sizeof(sslerr));
-		log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to finalize decrypt: %s", sslerr);
+		if (log_level == KNET_LOG_DEBUG) {
+			log_debug(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to finalize decrypt: %s", sslerr);
+		} else {
+			log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to finalize decrypt: %s", sslerr);
+		}
 		err = -1;
 		goto out;
 	}
@@ -285,7 +303,8 @@ static int calculate_openssl_hash(
 	struct crypto_instance *crypto_instance,
 	const unsigned char *buf,
 	const size_t buf_len,
-	unsigned char *hash)
+	unsigned char *hash,
+	uint8_t log_level)
 {
 	struct opensslcrypto_instance *instance = crypto_instance->model_instance;
 	unsigned int hash_len = 0;
@@ -299,7 +318,11 @@ static int calculate_openssl_hash(
 
 	if ((!hash_out) || (hash_len != crypto_instance->sec_hash_size)) {
 		ERR_error_string_n(ERR_get_error(), sslerr, sizeof(sslerr));
-		log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to calculate hash: %s", sslerr);
+		if (log_level == KNET_LOG_DEBUG) {
+			log_debug(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to calculate hash: %s", sslerr);
+		} else {
+			log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Unable to calculate hash: %s", sslerr);
+		}
 		return -1;
 	}
 
@@ -334,7 +357,7 @@ static int opensslcrypto_encrypt_and_signv (
 	}
 
 	if (instance->crypto_hash_type) {
-		if (calculate_openssl_hash(knet_h, crypto_instance, buf_out, *buf_out_len, buf_out + *buf_out_len) < 0) {
+		if (calculate_openssl_hash(knet_h, crypto_instance, buf_out, *buf_out_len, buf_out + *buf_out_len, KNET_LOG_ERR) < 0) {
 			return -1;
 		}
 		*buf_out_len = *buf_out_len + crypto_instance->sec_hash_size;
@@ -366,7 +389,8 @@ static int opensslcrypto_authenticate_and_decrypt (
 	const unsigned char *buf_in,
 	const ssize_t buf_in_len,
 	unsigned char *buf_out,
-	ssize_t *buf_out_len)
+	ssize_t *buf_out_len,
+	uint8_t log_level)
 {
 	struct opensslcrypto_instance *instance = crypto_instance->model_instance;
 	ssize_t temp_len = buf_in_len;
@@ -380,12 +404,16 @@ static int opensslcrypto_authenticate_and_decrypt (
 			return -1;
 		}
 
-		if (calculate_openssl_hash(knet_h, crypto_instance, buf_in, temp_buf_len, tmp_hash) < 0) {
+		if (calculate_openssl_hash(knet_h, crypto_instance, buf_in, temp_buf_len, tmp_hash, log_level) < 0) {
 			return -1;
 		}
 
 		if (memcmp(tmp_hash, buf_in + temp_buf_len, crypto_instance->sec_hash_size) != 0) {
-			log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Digest does not match");
+			if (log_level == KNET_LOG_DEBUG) {
+				log_debug(knet_h, KNET_SUB_OPENSSLCRYPTO, "Digest does not match");
+			} else {
+				log_err(knet_h, KNET_SUB_OPENSSLCRYPTO, "Digest does not match");
+			}
 			return -1;
 		}
 
@@ -393,7 +421,7 @@ static int opensslcrypto_authenticate_and_decrypt (
 		*buf_out_len = temp_len;
 	}
 	if (instance->crypto_cipher_type) {
-		if (decrypt_openssl(knet_h, crypto_instance, buf_in, temp_len, buf_out, buf_out_len) < 0) {
+		if (decrypt_openssl(knet_h, crypto_instance, buf_in, temp_len, buf_out, buf_out_len, log_level) < 0) {
 			return -1;
 		}
 	} else {

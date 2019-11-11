@@ -74,13 +74,25 @@ int crypto_authenticate_and_decrypt (
 	ssize_t *buf_out_len)
 {
 	int i, err = 0;
+	int multiple_configs = 0;
+	uint8_t log_level = KNET_LOG_ERR;
+
+	for (i = 1; i <= KNET_MAX_CRYPTO_INSTANCES; i++) {
+		if (knet_h->crypto_instance[i]) {
+			multiple_configs++;
+		}
+	}
 
 	/*
 	 * attempt to decrypt first with the in-use config
 	 * to avoid excessive performance hit.
 	 */
 
-	err = crypto_modules_cmds[knet_h->crypto_instance[knet_h->crypto_in_use_config]->model].ops->decrypt(knet_h, knet_h->crypto_instance[knet_h->crypto_in_use_config], buf_in, buf_in_len, buf_out, buf_out_len);
+	if (multiple_configs > 1) {
+		log_level = KNET_LOG_DEBUG;
+	}
+
+	err = crypto_modules_cmds[knet_h->crypto_instance[knet_h->crypto_in_use_config]->model].ops->decrypt(knet_h, knet_h->crypto_instance[knet_h->crypto_in_use_config], buf_in, buf_in_len, buf_out, buf_out_len, log_level);
 
 	/*
 	 * if we fail, try to use the other configurations
@@ -95,7 +107,7 @@ int crypto_authenticate_and_decrypt (
 			}
 			if (knet_h->crypto_instance[i]) {
 				log_debug(knet_h, KNET_SUB_CRYPTO, "Alternative crypto configuration found, attempting to decrypt with config %u", i);
-				err = crypto_modules_cmds[knet_h->crypto_instance[i]->model].ops->decrypt(knet_h, knet_h->crypto_instance[i], buf_in, buf_in_len, buf_out, buf_out_len);
+				err = crypto_modules_cmds[knet_h->crypto_instance[i]->model].ops->decrypt(knet_h, knet_h->crypto_instance[i], buf_in, buf_in_len, buf_out, buf_out_len, KNET_LOG_ERR);
 				if (!err) {
 					errno = 0; /* clear errno from previous failures */
 					return err;

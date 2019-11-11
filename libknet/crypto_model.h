@@ -48,7 +48,8 @@ typedef struct {
 			 const unsigned char *buf_in,
 			 const ssize_t buf_in_len,
 			 unsigned char *buf_out,
-			 ssize_t *buf_out_len);
+			 ssize_t *buf_out_len,
+			 uint8_t log_level);
 } crypto_ops_t;
 
 typedef struct {
