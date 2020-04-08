@@ -123,15 +123,24 @@ int crypto_use_config(
 	knet_handle_t knet_h,
 	uint8_t config_num)
 {
-	if (!knet_h->crypto_instance[config_num]) {
+	if ((config_num) && (!knet_h->crypto_instance[config_num])) {
 		errno = EINVAL;
 		return -1;
 	}
 
 	knet_h->crypto_in_use_config = config_num;
-	knet_h->sec_block_size = knet_h->crypto_instance[config_num]->sec_block_size;
-	knet_h->sec_hash_size = knet_h->crypto_instance[config_num]->sec_hash_size;
-	knet_h->sec_salt_size = knet_h->crypto_instance[config_num]->sec_salt_size;
+
+	if (config_num) {
+		knet_h->sec_block_size = knet_h->crypto_instance[config_num]->sec_block_size;
+		knet_h->sec_hash_size = knet_h->crypto_instance[config_num]->sec_hash_size;
+		knet_h->sec_salt_size = knet_h->crypto_instance[config_num]->sec_salt_size;
+	} else {
+		knet_h->sec_block_size = 0;
+		knet_h->sec_hash_size = 0;
+		knet_h->sec_salt_size = 0;
+	}
+
+	force_pmtud_run(knet_h, KNET_SUB_CRYPTO, 1);
 
 	return 0;
 }
@@ -215,24 +224,15 @@ int crypto_init(
 out:
 	if (!err) {
 		knet_h->crypto_instance[config_num] = new;
-		if ((!knet_h->crypto_in_use_config) || (knet_h->crypto_in_use_config == config_num)) {
-			knet_h->sec_block_size = new->sec_block_size;
-			knet_h->sec_hash_size = new->sec_hash_size;
-			knet_h->sec_salt_size = new->sec_salt_size;
-		}
-		/*
-		 * set default config only at first crypto init
-		 */
-		if (!knet_h->crypto_in_use_config) {
-			knet_h->crypto_in_use_config = config_num;
-		}
-
-		log_debug(knet_h, KNET_SUB_CRYPTO, "Hash size: %zu salt size: %zu block size: %zu",
-			  knet_h->sec_hash_size,
-			  knet_h->sec_salt_size,
-			  knet_h->sec_block_size);
 
 		if (current) {
+			/*
+			 * if we are replacing the current config, we need to enable it right away
+			 */
+			if (knet_h->crypto_in_use_config == config_num) {
+				crypto_use_config(knet_h, config_num);
+			}
+
 			if (crypto_modules_cmds[current->model].ops->fini != NULL) {
 				crypto_modules_cmds[current->model].ops->fini(knet_h, current);
 			}
@@ -281,11 +281,11 @@ void crypto_fini(
 		return;
 	}
 
-	if (!config_num) {
+	if (config_num == KNET_MAX_CRYPTO_INSTANCES) {
 		for (i = 1; i <= KNET_MAX_CRYPTO_INSTANCES; i++) {
 			crypto_fini_config(knet_h, i);
 		}
-		knet_h->crypto_in_use_config = 0;
+		crypto_use_config(knet_h, 0);
 	} else {
 		crypto_fini_config(knet_h, config_num);
 		if (knet_h->crypto_in_use_config == config_num) {

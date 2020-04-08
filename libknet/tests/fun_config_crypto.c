@@ -30,7 +30,7 @@ static void test(const char *model)
 	int logfds[2];
 	struct knet_handle_crypto_cfg knet_handle_crypto_cfg;
 	int i,x,j;
-	int seconds = 7;
+	int seconds = 10;
 
 	if (is_memcheck() || is_helgrind()) {
 		printf("Test suite is running under valgrind, adjusting wait_for_host timeout\n");
@@ -50,11 +50,19 @@ static void test(const char *model)
 	strncpy(knet_handle_crypto_cfg.crypto_model, model, sizeof(knet_handle_crypto_cfg.crypto_model) - 1);
 	strncpy(knet_handle_crypto_cfg.crypto_cipher_type, "aes128", sizeof(knet_handle_crypto_cfg.crypto_cipher_type) - 1);
 	strncpy(knet_handle_crypto_cfg.crypto_hash_type, "sha256", sizeof(knet_handle_crypto_cfg.crypto_hash_type) - 1);
+	memset(knet_handle_crypto_cfg.private_key, 0, KNET_MAX_KEY_LEN);
 	knet_handle_crypto_cfg.private_key_len = 2000;
 
 	for (i = 1; i <= TESTNODES; i++) {
 		if (knet_handle_crypto_set_config(knet_h[i], &knet_handle_crypto_cfg, 1) < 0) {
 			printf("knet_handle_crypto_set_config (1) failed with correct config: %s\n", strerror(errno));
+			knet_handle_stop_nodes(knet_h, TESTNODES);
+			flush_logs(logfds[0], stdout);
+			close_logpipes(logfds);
+			exit(FAIL);
+		}
+		if (knet_handle_crypto_use_config(knet_h[i], 1) < 0) {
+			printf("knet_handle_crypto_use_config (1) failed with correct config: %s\n", strerror(errno));
 			knet_handle_stop_nodes(knet_h, TESTNODES);
 			flush_logs(logfds[0], stdout);
 			close_logpipes(logfds);
@@ -154,6 +162,28 @@ static void test(const char *model)
 		}
 	}
 
+	printf("Testing disable crypto config 2\n");
+
+	/*
+	 * config2: aes256/sha512 key1 is all 1s (KNET_MAX_KEY_LEN bytes)
+	 */
+	memset(&knet_handle_crypto_cfg, 0, sizeof(struct knet_handle_crypto_cfg));
+	strncpy(knet_handle_crypto_cfg.crypto_model, "none", sizeof(knet_handle_crypto_cfg.crypto_model) - 1);
+	strncpy(knet_handle_crypto_cfg.crypto_cipher_type, "none", sizeof(knet_handle_crypto_cfg.crypto_cipher_type) - 1);
+	strncpy(knet_handle_crypto_cfg.crypto_hash_type, "none", sizeof(knet_handle_crypto_cfg.crypto_hash_type) - 1);
+	memset(knet_handle_crypto_cfg.private_key, 0, KNET_MAX_KEY_LEN);
+	knet_handle_crypto_cfg.private_key_len = KNET_MAX_KEY_LEN;
+
+	for (i = 1; i <= TESTNODES; i++) {
+		if (knet_handle_crypto_set_config(knet_h[i], &knet_handle_crypto_cfg, 2) < 0) {
+			printf("knet_handle_crypto_set_config (2) failed with correct config: %s\n", strerror(errno));
+			knet_handle_stop_nodes(knet_h, TESTNODES);
+			flush_logs(logfds[0], stdout);
+			close_logpipes(logfds);
+			exit(FAIL);
+		}
+	}
+
 	flush_logs(logfds[0], stdout);
 	close_logpipes(logfds);
 	knet_handle_stop_nodes(knet_h, TESTNODES);
@@ -183,6 +213,9 @@ int main(int argc, char *argv[])
 		printf("no crypto modules detected. Skipping\n");
 		return SKIP;
 	}
+
+	test("nss");
+	return PASS;
 
 	for (i=0; i < crypto_list_entries; i++) {
 		test(crypto_list[i].name);

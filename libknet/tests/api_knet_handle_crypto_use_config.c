@@ -43,16 +43,6 @@ static void test(const char *model, const char *model2)
 
 	printf("Test knet_handle_crypto_use_config with invalid config num\n");
 
-	if ((!knet_handle_crypto_use_config(knet_h, 0)) || (errno != EINVAL)) {
-		printf("knet_handle_crypto_use_config accepted invalid config num (0) or returned incorrect error: %s\n", strerror(errno));
-		knet_handle_free(knet_h);
-		flush_logs(logfds[0], stdout);
-		close_logpipes(logfds);
-		exit(FAIL);
-	}
-
-	flush_logs(logfds[0], stdout);
-
 	if ((!knet_handle_crypto_use_config(knet_h, KNET_MAX_CRYPTO_INSTANCES + 1)) || (errno != EINVAL)) {
 		printf("knet_handle_crypto_use_config accepted invalid config num (%u) or returned incorrect error: %s\n", KNET_MAX_CRYPTO_INSTANCES + 1, strerror(errno));
 		knet_handle_free(knet_h);
@@ -103,14 +93,6 @@ static void test(const char *model, const char *model2)
 
 	flush_logs(logfds[0], stdout);
 
-	if (knet_h->crypto_in_use_config != 1) {
-		printf("knet_handle_crypto_set_config failed to set default crypto in-use config\n");
-		knet_handle_free(knet_h);
-		flush_logs(logfds[0], stdout);
-		close_logpipes(logfds);
-		exit(FAIL);
-	}
-
 	printf("Test knet_handle_crypto_use_config with un-initialized cfg (part 2)\n");
 
 	if ((!knet_handle_crypto_use_config(knet_h, 2)) || (errno != EINVAL)) {
@@ -150,14 +132,6 @@ static void test(const char *model, const char *model2)
 	}
 
 	flush_logs(logfds[0], stdout);
-
-	if (knet_h->crypto_in_use_config != 1) {
-		printf("knet_handle_crypto_set_config failed to retain default crypto in-use config\n");
-		knet_handle_free(knet_h);
-		flush_logs(logfds[0], stdout);
-		close_logpipes(logfds);
-		exit(FAIL);
-	}
 
 	printf("Test knet_handle_crypto_use_config with valid data\n");
 

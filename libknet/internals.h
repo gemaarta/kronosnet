@@ -218,7 +218,8 @@ struct knet_handle {
 	int pmtud_forcerun;
 	int pmtud_abort;
 	struct crypto_instance *crypto_instance[KNET_MAX_CRYPTO_INSTANCES + 1]; /* store an extra pointer to allow 0|1|2 values without too much magic in the code */
-	uint8_t crypto_in_use_config;
+	uint8_t crypto_in_use_config;		/* crypto config to use for TX */
+	uint8_t crypto_only;			/* allow only crypto (1) or also clear (0) traffic */
 	size_t sec_block_size;
 	size_t sec_hash_size;
 	size_t sec_salt_size;
